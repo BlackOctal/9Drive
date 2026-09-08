@@ -1,0 +1,171 @@
+@import 'tailwindcss';
+
+/*
+  Design language: an aircraft fuel-management panel.
+
+  The product's real job — several tanks of differing capacity, one total
+  reading, and a routing rule deciding which tank feeds next — is the same
+  problem a fuel panel solves. So the interface borrows its vocabulary:
+  gauge amber for the active feed, unlit tick marks, condensed instrument
+  labels, monospaced figures that never reflow as they count.
+*/
+
+@theme {
+  --color-void: #0e1116;
+  --color-panel: #161b23;
+  --color-lift: #1d242e;
+  --color-line: #29323f;
+  --color-line-bright: #3a4658;
+
+  --color-ink: #e8edf5;
+  --color-dim: #7e8ca0;
+  --color-faint: #55627a;
+
+  /* Amber is reserved for one thing: where the next upload is going. */
+  --color-signal: #ffb000;
+  --color-signal-dim: #7a5400;
+
+  --color-flow: #3fbfb0;
+  --color-warn: #ff8a3d;
+  --color-alarm: #ff5c5c;
+
+  /*
+    The vault is a different room. Amber means "the active write target"
+    everywhere else in this app and gauges mean "how full", so neither belongs
+    in a section that has no routing and shows no capacity. A cool steel
+    instead — quieter, and unmistakably not the fuel panel.
+  */
+  --color-vault: #9ab8d8;
+  --color-vault-dim: #4a6485;
+  --color-vault-deep: #101620;
+
+  --font-display: var(--font-condensed), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-face), ui-monospace, monospace;
+
+  --radius-panel: 3px;
+}
+
+* {
+  border-color: var(--color-line);
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--color-void);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  /* Faint horizontal scanlines, like a backlit instrument face. */
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.012) 0px,
+    rgba(255, 255, 255, 0.012) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+/* An instrument label: small, condensed, letterspaced, unshouty. */
+.eyebrow {
+  font-family: var(--font-display);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+/* Figures are tabular so a counting number does not jitter its neighbours. */
+.readout {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'zero' 1;
+}
+
+.panel {
+  background: var(--color-panel);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-panel);
+}
+
+/*
+  Vault surfaces. Flatter than .panel and a touch colder: no scanline ground,
+  no lit edge, nothing that reads as an instrument face.
+*/
+.vault-panel {
+  background: var(--color-vault-deep);
+  border: 1px solid color-mix(in srgb, var(--color-vault) 16%, transparent);
+  border-radius: var(--radius-panel);
+}
+
+.vault-rule {
+  border-color: color-mix(in srgb, var(--color-vault) 14%, transparent);
+}
+
+/* The amber glow marking the active feed. Used sparingly, on one element. */
+.lit {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-signal) 40%, transparent),
+    0 0 18px -4px color-mix(in srgb, var(--color-signal) 55%, transparent);
+}
+
+.focus-ring {
+  outline: 2px solid var(--color-signal);
+  outline-offset: 2px;
+}
+
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-signal);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-void);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border: 2px solid var(--color-void);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-line-bright);
+}
+
+@keyframes needle-settle {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+@keyframes pulse-signal {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.animate-settle {
+  transform-origin: bottom;
+  animation: needle-settle 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-signal {
+  animation: pulse-signal 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

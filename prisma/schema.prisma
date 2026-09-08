@@ -1,0 +1,290 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // pooled — used at runtime
+  directUrl = env("DIRECT_URL") // direct — used by db push / migrate
+}
+
+model User {
+  id           String  @id @default(cuid())
+  name         String
+  email        String  @unique
+  passwordHash String  @map("password_hash")
+  avatarUrl    String? @map("avatar_url")
+  status       String  @default("active")
+
+  /// Random 16 bytes, base64. Salts the PBKDF2 derivation of the vault key.
+  /// Not a secret — it exists so the same passphrase derives a different key
+  /// for every user.
+  vaultSalt     String? @map("vault_salt")
+  /// A known string encrypted with the derived key, so a wrong passphrase
+  /// fails immediately instead of quietly producing garbage.
+  vaultVerifier String? @map("vault_verifier")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  sessions      Session[]
+  accounts      ConnectedAccount[]
+  files         File[]
+  folders       Folder[]
+  uploads       UploadSession[]
+  oauthStates   OauthState[]
+  routingPolicy RoutingPolicy?
+  auditLogs     AuditLog[]
+  secretFiles   SecretFile[]
+
+  @@map("users")
+}
+
+/// Opaque refresh token, hashed at rest. Rotated on every use.
+model Session {
+  id               String    @id @default(cuid())
+  userId           String    @map("user_id")
+  refreshTokenHash String    @unique @map("refresh_token_hash")
+  /// Set when this token is rotated away. A hit on a rotated token = theft.
+  rotatedAt        DateTime? @map("rotated_at")
+  revokedAt        DateTime? @map("revoked_at")
+  userAgent        String?   @map("user_agent")
+  ipAddress        String?   @map("ip_address")
+  expiresAt        DateTime  @map("expires_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+/// CSRF state for an in-flight Google consent redirect.
+model OauthState {
+  id        String    @id @default(cuid())
+  userId    String?   @map("user_id")
+  /// "login" creates/finds a user. "connect" attaches a drive to an existing one.
+  flow      String    @default("connect")
+  /// Which bay the resulting drive should occupy.
+  bayIndex  Int       @default(1) @map("bay_index")
+  stateHash String    @unique @map("state_hash")
+  /// Where to send the browser once the dance finishes.
+  returnTo  String    @default("/") @map("return_to")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("oauth_states")
+}
+
+/// One physical storage account. The unit the routing engine picks between.
+model ConnectedAccount {
+  id                String @id @default(cuid())
+  userId            String @map("user_id")
+  provider          String @default("google_drive")
+  providerAccountId String @map("provider_account_id")
+
+  /// Which physical slot in the array this drive occupies. 1-indexed.
+  bayIndex Int @map("bay_index")
+
+  email       String
+  displayName String? @map("display_name")
+  avatarUrl   String? @map("avatar_url")
+
+  accessTokenEncrypted  String   @map("access_token_encrypted")
+  refreshTokenEncrypted String   @map("refresh_token_encrypted")
+  tokenExpiresAt        DateTime @map("token_expires_at")
+  scopes                String[]
+
+  /// The provider-side id of this account's "9drive" root folder.
+  rootFolderId String? @map("root_folder_id")
+
+  status    String   @default("connected")
+  lastError String?  @map("last_error")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quota       Quota?
+  files       File[]
+  folders     Folder[]
+  uploads     UploadSession[]
+  secretFiles SecretFile[]
+
+  @@unique([userId, provider, providerAccountId])
+  @@unique([userId, bayIndex])
+  @@index([userId, status])
+  @@map("connected_accounts")
+}
+
+/// Quota ledger, refreshed from the provider. null total = unlimited.
+model Quota {
+  id             String    @id @default(cuid())
+  accountId      String    @unique @map("account_id")
+  totalBytes     BigInt?   @map("total_bytes")
+  usedBytes      BigInt    @default(0) @map("used_bytes")
+  availableBytes BigInt?   @map("available_bytes")
+  trashBytes     BigInt?   @map("trash_bytes")
+  lastSyncedAt   DateTime? @map("last_synced_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  account ConnectedAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("quotas")
+}
+
+/// Virtual folder. Pinned to one account so its contents never scatter.
+model Folder {
+  id               String  @id @default(cuid())
+  userId           String  @map("user_id")
+  parentId         String? @map("parent_id")
+  accountId        String? @map("account_id")
+  providerFolderId String? @map("provider_folder_id")
+  name             String
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent   Folder?           @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children Folder[]          @relation("FolderTree")
+  account  ConnectedAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  files    File[]
+  uploads  UploadSession[]
+
+  @@index([userId, deletedAt, parentId])
+  @@map("folders")
+}
+
+/// Metadata pointer. The bytes live at (accountId, providerFileId).
+model File {
+  id             String  @id @default(cuid())
+  userId         String  @map("user_id")
+  accountId      String  @map("account_id")
+  folderId       String? @map("folder_id")
+  provider       String  @default("google_drive")
+  providerFileId String  @map("provider_file_id")
+
+  name      String
+  mimeType  String @map("mime_type")
+  sizeBytes BigInt @map("size_bytes")
+
+  starred   Boolean   @default(false)
+  status    String    @default("active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account ConnectedAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  folder  Folder?          @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
+  @@unique([accountId, providerFileId])
+  @@index([userId, status, folderId, createdAt])
+  @@index([userId, status, updatedAt])
+  @@map("files")
+}
+
+/// Tracks a browser-to-Drive direct upload. The server never sees the bytes.
+model UploadSession {
+  id        String  @id @default(cuid())
+  userId    String  @map("user_id")
+  accountId String? @map("account_id")
+  folderId  String? @map("folder_id")
+
+  fileName  String @map("file_name")
+  mimeType  String @map("mime_type")
+  sizeBytes BigInt @map("size_bytes")
+
+  /// Google's resumable session URI. Bearer-free: the URI itself is the credential.
+  uploadUrl    String?   @map("upload_url") @db.Text
+  status       String    @default("pending")
+  errorMessage String?   @map("error_message")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  expiresAt    DateTime  @map("expires_at")
+  completedAt  DateTime? @map("completed_at")
+
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account ConnectedAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  folder  Folder?           @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@map("upload_sessions")
+}
+
+model RoutingPolicy {
+  id     String @id @default(cuid())
+  userId String @unique @map("user_id")
+
+  /// most_available | round_robin | priority | fill_first
+  mode             String   @default("most_available")
+  priorityOrder    String[] @map("priority_order")
+  roundRobinCursor Int      @default(0) @map("round_robin_cursor")
+  /// Stop routing to an account once it passes this fraction of capacity.
+  headroomPercent  Int      @default(2) @map("headroom_percent")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("routing_policies")
+}
+
+/// A file in the secret space.
+///
+/// Deliberately not a `File`. Secret files are kept out of the File table so
+/// they are absent from /api/files, from search, and from the Contents
+/// breakdown by construction rather than by a filter someone can forget.
+///
+/// The bytes live in the account's Google appDataFolder — hidden from the
+/// Drive interface and from every other app — and they are AES-256-GCM
+/// ciphertext produced in the browser. The server holds ciphertext and
+/// wrapped keys; it never sees the passphrase or a plaintext byte.
+///
+/// They still consume the account's quota, so they remain part of the
+/// volume's used total. That is correct: the space really is gone.
+model SecretFile {
+  id             String @id @default(cuid())
+  userId         String @map("user_id")
+  accountId      String @map("account_id")
+  /// The Drive id inside appDataFolder. Its name there is an opaque id.
+  providerFileId String @map("provider_file_id")
+
+  /// The real filename, AES-GCM encrypted under the per-file key.
+  encryptedName    String @map("encrypted_name")
+  /// The per-file key, AES-GCM encrypted under the passphrase-derived key.
+  /// Wrapping rather than deriving per file is what lets the passphrase
+  /// change later without re-encrypting every file's contents.
+  encryptedFileKey String @map("encrypted_file_key")
+  /// The IV for the file contents. 12 random bytes, base64.
+  iv               String
+
+  /// Length of the ciphertext, which is the plaintext plus the GCM tag.
+  sizeBytes BigInt   @map("size_bytes")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account ConnectedAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, providerFileId])
+  @@index([userId, createdAt])
+  @@map("secret_files")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?  @map("user_id")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id")
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@map("audit_logs")
+}
