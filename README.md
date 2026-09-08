@@ -202,9 +202,12 @@ Push to a repo, import it, and set the same environment variables. Set
 `https://your-app.vercel.app/api/auth/google/callback` to the Google client's
 redirect URIs.
 
-One caveat: `/api/files/[id]/content` declares `maxDuration = 300`, which needs
-a Pro plan. On Hobby it is capped at 60 seconds, so downloads of very large
-files over a slow connection will cut off.
+The three streaming routes — `/api/files/[id]/content`,
+`/api/drives/[accountId]/content/[fileId]` and `/api/vault/files/[id]/content`
+— declare `maxDuration = 60`, which is the Hobby ceiling. Vercel *rejects the
+deployment* if a function asks for more than the plan allows, so this is set
+low deliberately. On Pro, raise all three to 300: at 60 seconds a download of
+a very large file over a slow connection is cut off mid-stream.
 
 ## Notes on what changed from the original
 

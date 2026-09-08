@@ -6,7 +6,13 @@ import { streamDriveFile } from '@/lib/server/download'
 import { apiHandler, fail } from '@/lib/server/api'
 
 export const runtime = 'nodejs'
-export const maxDuration = 300
+/*
+  Vercel rejects a deployment whose function exceeds the plan's limit, and
+  Hobby caps at 60 seconds. 300 needs Pro. Raise this back to 300 on Pro if
+  you serve large files over slow connections — at 60 a multi-gigabyte
+  download can be cut off mid-stream.
+*/
+export const maxDuration = 60
 
 /**
  * Streams any file in a connected drive by its Drive id, whether or not
