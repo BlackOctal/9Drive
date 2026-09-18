@@ -197,10 +197,25 @@ that way.
 
 ## Deploying to Vercel
 
-Push to a repo, import it, and set the same environment variables. Set
-`APP_URL` to your production origin and add
-`https://your-app.vercel.app/api/auth/google/callback` to the Google client's
-redirect URIs.
+Push to a repo, import it, and set the same environment variables under
+**Settings -> Environment Variables**, with **Production** ticked. Paste values
+without surrounding quotes — Vercel stores them literally, so `"https://..."`
+is not a valid URL and a quoted 64-character secret is 66 characters long.
+
+`APP_URL` is the awkward one, because on a first deploy the URL does not exist
+yet. It is optional: left unset, it falls back to
+`https://$VERCEL_PROJECT_PRODUCTION_URL`, the stable production domain Vercel
+assigns. Set it explicitly once a custom domain exists.
+
+Whichever URL ends up in `APP_URL`, add `<that origin>/api/auth/google/callback`
+to the Google client's authorised redirect URIs, alongside the localhost one.
+
+`APP_URL` is not only the OAuth redirect. It is also sent as the `Origin` when
+minting a resumable upload session, and Google echoes it into that session's
+CORS allowlist. If it does not match the origin the browser is actually on,
+sign-in works and every upload fails with an opaque CORS error. That is also
+why preview deployments cannot work: each gets its own hostname, which no fixed
+`APP_URL` can match. Use production, or a custom domain.
 
 The three streaming routes — `/api/files/[id]/content`,
 `/api/drives/[accountId]/content/[fileId]` and `/api/vault/files/[id]/content`
