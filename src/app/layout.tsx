@@ -9,9 +9,20 @@ const mono = IBM_Plex_Mono({ subsets: ['latin'], weight: ['400', '500'], variabl
 export const metadata: Metadata = {
   title: '9Drive — one drive from many',
   description: 'Pool several Google Drive accounts into a single storage volume.',
+  // Added to the iOS Home Screen, this runs without Safari's chrome.
+  appleWebApp: { capable: true, title: '9Drive', statusBarStyle: 'black-translucent' },
 }
 
-export const viewport: Viewport = { themeColor: '#0e1116' }
+export const viewport: Viewport = {
+  themeColor: '#0e1116',
+  // Lets the page reach under the notch and home indicator, which is what
+  // makes env(safe-area-inset-*) report anything to pad with.
+  viewportFit: 'cover',
+  // The panel is an instrument face, not a document; pinch-zooming it only
+  // ever strands people sideways.
+  width: 'device-width',
+  initialScale: 1,
+}
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

@@ -69,6 +69,26 @@ body {
   );
 }
 
+/*
+  Added to the iOS Home Screen the app runs fullscreen, so the status bar sits
+  over the top of the page and the home indicator over the bottom. These pad
+  by the actual inset, which is zero in a normal browser tab.
+*/
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+.safe-bottom {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 1.5rem);
+}
+
+@supports (padding: max(0px)) {
+  .safe-top {
+    padding-left: max(0px, env(safe-area-inset-left));
+    padding-right: max(0px, env(safe-area-inset-right));
+  }
+}
+
 /* An instrument label: small, condensed, letterspaced, unshouty. */
 .eyebrow {
   font-family: var(--font-display);
